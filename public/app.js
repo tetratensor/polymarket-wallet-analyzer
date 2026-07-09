@@ -25,6 +25,7 @@ function fmtUsd(v, digits = 2) {
   if (!fin(v)) return '—';
   if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
   if (Math.abs(v) >= 1e3) return `$${(v / 1e3).toFixed(1)}k`;
+  if (v !== 0 && Math.abs(v) < 0.01) return `$${v.toFixed(3)}`; // sub-cent fills on log axes
   if (v !== 0 && Math.abs(v) < 10) return `$${v.toFixed(2)}`; // keep cents visible on log axes
   return `$${v.toFixed(digits)}`;
 }
@@ -324,49 +325,124 @@ function renderScatter() {
   }
   const s = state.data.summary.sizeVsEntry;
   $('scatter-sub').textContent =
-    `Each point is one BUY fill (n=${fmtInt(s.n)}). Pearson r = ${fin(s.pearson) ? s.pearson.toFixed(3) : '—'}, ` +
-    `Spearman ρ = ${fin(s.spearman) ? s.spearman.toFixed(3) : '—'}. Line = median bet per 10¢ price band.`;
+    `Each point is one BUY fill (n=${fmtInt(s.n)}). Orange line = median bet per price band, band = middle 50%. ` +
+    `Pearson r = ${fin(s.pearson) ? s.pearson.toFixed(3) : '—'}, Spearman ρ = ${fin(s.spearman) ? s.spearman.toFixed(3) : '—'}.`;
 
-  // median bet size per 10¢ price band
-  const bandMedians = [];
-  for (let b = 0; b < 10; b++) {
-    const lo = b / 10;
-    const hi = (b + 1) / 10;
-    const inBand = buys.filter((t) => t.price >= lo && (b === 9 ? t.price <= hi : t.price < hi)).map((t) => t.usdc);
-    if (inBand.length) bandMedians.push([lo + 0.05, +quantile(inBand, 0.5).toFixed(2)]);
+  // median + interquartile band of bet size per price band (5¢ when dense, 10¢ otherwise)
+  const nBands = buys.length >= 2000 ? 20 : 10;
+  const bandW = 1 / nBands;
+  const p25 = [];
+  const p50 = [];
+  const p75 = [];
+  for (let b = 0; b < nBands; b++) {
+    const lo = b * bandW;
+    const hi = lo + bandW;
+    const inBand = buys
+      .filter((t) => t.price >= lo && (b === nBands - 1 ? t.price <= hi : t.price < hi))
+      .map((t) => t.usdc);
+    const x = lo + bandW / 2;
+    if (inBand.length >= 3) {
+      p25.push([x, quantile(inBand, 0.25)]);
+      p50.push([x, quantile(inBand, 0.5)]);
+      p75.push([x, quantile(inBand, 0.75)]);
+    }
   }
 
-  const large = buys.length > 4000;
+  const dense = buys.length > 800;
+  const ultra = buys.length > 8000;
   chart('chart-scatter').setOption({
     tooltip: {
       ...baseTooltip,
       formatter: (p) => p.seriesType === 'scatter'
         ? `${p.data[2] || ''}<br/>price <b>${fmtCents(p.data[0])}</b> · bet <b>${fmtUsd(p.data[1])}</b>`
-        : `price band ${fmtCents(p.data[0] - 0.05)}–${fmtCents(p.data[0] + 0.05)}<br/>median bet <b>${fmtUsd(p.data[1])}</b>`,
+        : `entry ${fmtCents(p.data[0] - bandW / 2)}–${fmtCents(p.data[0] + bandW / 2)}<br/>median bet <b>${fmtUsd(p.data[1])}</b>`,
     },
-    grid: { left: 65, right: 20, top: 20, bottom: 40 },
-    xAxis: { type: 'value', min: 0, max: 1, name: 'entry price', ...baseAxis, axisLabel: { ...baseAxis.axisLabel, formatter: (v) => fmtCents(v) } },
-    yAxis: { type: 'log', name: 'bet size (USDC)', ...baseAxis, axisLabel: { ...baseAxis.axisLabel, formatter: (v) => fmtUsd(v, 0) } },
+    grid: { left: 70, right: 24, top: 30, bottom: 42 },
+    xAxis: {
+      type: 'value', min: 0, max: 1,
+      name: 'entry price', nameLocation: 'middle', nameGap: 28,
+      ...baseAxis,
+      interval: 0.1,
+      axisLabel: { ...baseAxis.axisLabel, formatter: (v) => `${Math.round(v * 100)}¢` },
+      splitLine: { lineStyle: { color: 'rgba(35,43,58,0.5)', type: 'dashed' } },
+    },
+    yAxis: {
+      type: 'log', name: 'bet size', nameGap: 14,
+      ...baseAxis,
+      axisLabel: { ...baseAxis.axisLabel, formatter: (v) => fmtUsd(v, 0) },
+      splitLine: { lineStyle: { color: 'rgba(35,43,58,0.5)', type: 'dashed' } },
+    },
     series: [
       {
+        name: 'BUY fills',
         type: 'scatter',
         data: buys.map((t) => [t.price, t.usdc, t.title]),
-        symbolSize: large ? 3 : 6,
-        large,
-        itemStyle: { color: 'rgba(79,141,255,0.45)' },
+        symbolSize: ultra ? 2.5 : dense ? 3 : 6,
+        large: buys.length > 4000,
+        itemStyle: { color: ultra ? 'rgba(79,141,255,0.13)' : dense ? 'rgba(79,141,255,0.22)' : 'rgba(79,141,255,0.45)' },
+        z: 2,
       },
-      {
-        type: 'line',
-        data: bandMedians,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 7,
-        lineStyle: { color: '#ffb454', width: 2.5 },
-        itemStyle: { color: '#ffb454' },
-        z: 10,
-      },
+      ...iqrBandSeries(p25, p50, p75, {
+        color: '#ffb454',
+        medianTooltip: true,
+        name: 'median bet',
+      }),
     ],
   }, true);
+}
+
+/**
+ * Builds three ECharts series that render a shaded interquartile band plus a
+ * bold median line. Uses the stacked-area technique: an invisible line at p25
+ * and a stacked area of (p75 - p25) on top of it.
+ */
+function iqrBandSeries(p25, p50, p75, { color, name }) {
+  if (p50.length < 2) {
+    // not enough bands for a trend — show median points only, if any
+    return p50.length
+      ? [{ name, type: 'scatter', data: p50, symbolSize: 8, itemStyle: { color }, z: 10 }]
+      : [];
+  }
+  const hex = (c, a) => c + Math.round(a * 255).toString(16).padStart(2, '0');
+  return [
+    {
+      name: 'iqr-base',
+      type: 'line',
+      data: p25,
+      stack: 'iqr',
+      smooth: true,
+      symbol: 'none',
+      lineStyle: { opacity: 0 },
+      tooltip: { show: false },
+      silent: true,
+      z: 4,
+    },
+    {
+      name: 'middle 50%',
+      type: 'line',
+      data: p75.map(([x, v], i) => [x, v - p25[i][1]]),
+      stack: 'iqr',
+      smooth: true,
+      symbol: 'none',
+      lineStyle: { opacity: 0 },
+      areaStyle: { color: hex(color, 0.16) },
+      tooltip: { show: false },
+      silent: true,
+      z: 4,
+    },
+    {
+      name,
+      type: 'line',
+      data: p50,
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 6,
+      lineStyle: { color, width: 2.5 },
+      itemStyle: { color, borderColor: '#0d1017', borderWidth: 1 },
+      emphasis: { scale: 1.6 },
+      z: 10,
+    },
+  ];
 }
 
 function renderPnlSeries() {
@@ -423,26 +499,84 @@ function renderPnlScatter() {
   }
   const c = settled.corr;
   $('pnlscatter-sub').textContent =
-    `Each point is one settled bet (n=${fmtInt(withBet.length)}). ` +
-    `Bet size vs PnL: Spearman ρ = ${fin(c.betVsPnl.spearman) ? c.betVsPnl.spearman.toFixed(3) : '—'}; ` +
-    `bet size vs ROI: ρ = ${fin(c.betVsRoi.spearman) ? c.betVsRoi.spearman.toFixed(3) : '—'}.`;
+    `Each point is one settled bet (n=${fmtInt(withBet.length)}); green won, red lost. ` +
+    `Orange line = median PnL per bet-size bucket, band = middle 50%. ` +
+    `Spearman ρ: size vs PnL ${fin(c.betVsPnl.spearman) ? c.betVsPnl.spearman.toFixed(3) : '—'}, size vs ROI ${fin(c.betVsRoi.spearman) ? c.betVsRoi.spearman.toFixed(3) : '—'}.`;
 
   const winPts = [];
   const lossPts = [];
   for (const p of withBet) {
     (p.pnl >= 0 ? winPts : lossPts).push([p.betUsdc, +p.pnl.toFixed(2), p.title]);
   }
+
+  // median + IQR of PnL per logarithmic bet-size bucket
+  const logs = withBet.map((p) => Math.log10(p.betUsdc));
+  const loLog = Math.min(...logs);
+  const hiLog = Math.max(...logs);
+  const nBuckets = Math.min(12, Math.max(5, Math.floor(withBet.length / 25)));
+  const step = (hiLog - loLog) / nBuckets || 1;
+  const p25 = [];
+  const p50 = [];
+  const p75 = [];
+  for (let b = 0; b < nBuckets; b++) {
+    const lo = loLog + b * step;
+    const hi = lo + step;
+    const inB = withBet
+      .filter((p, i) => logs[i] >= lo && (b === nBuckets - 1 ? logs[i] <= hi : logs[i] < hi))
+      .map((p) => p.pnl);
+    if (inB.length >= 3) {
+      const x = 10 ** (lo + step / 2);
+      p25.push([x, quantile(inB, 0.25)]);
+      p50.push([x, quantile(inB, 0.5)]);
+      p75.push([x, quantile(inB, 0.75)]);
+    }
+  }
+
+  const dense = withBet.length > 800;
+  const ultra = withBet.length > 8000;
   const large = withBet.length > 4000;
+  const dot = (color) => ({
+    type: 'scatter',
+    symbolSize: ultra ? 2.5 : dense ? 3.5 : 6,
+    large,
+    z: 2,
+    itemStyle: { color },
+  });
   const point = (p) => `${p.data[2] || ''}<br/>bet <b>${fmtUsd(p.data[0])}</b> · PnL <b>${p.data[1] >= 0 ? '+' : ''}${fmtUsd(p.data[1])}</b>`;
 
   chart('chart-pnlscatter').setOption({
-    tooltip: { ...baseTooltip, formatter: point },
-    grid: { left: 65, right: 20, top: 20, bottom: 40 },
-    xAxis: { type: 'log', name: 'bet size (USDC)', ...baseAxis, axisLabel: { ...baseAxis.axisLabel, formatter: (v) => fmtUsd(v, 0) } },
-    yAxis: { type: 'value', name: 'realized PnL', ...baseAxis, axisLabel: { ...baseAxis.axisLabel, formatter: (v) => fmtUsd(v, 0) } },
+    tooltip: {
+      ...baseTooltip,
+      formatter: (p) => p.seriesType === 'scatter'
+        ? point(p)
+        : `bets ~${fmtUsd(p.data[0], 0)}<br/>median PnL <b>${p.data[1] >= 0 ? '+' : ''}${fmtUsd(p.data[1])}</b>`,
+    },
+    grid: { left: 70, right: 24, top: 30, bottom: 42 },
+    xAxis: {
+      type: 'log', name: 'bet size', nameLocation: 'middle', nameGap: 28,
+      ...baseAxis,
+      axisLabel: { ...baseAxis.axisLabel, formatter: (v) => fmtUsd(v, 0) },
+      splitLine: { lineStyle: { color: 'rgba(35,43,58,0.5)', type: 'dashed' } },
+    },
+    yAxis: {
+      type: 'value', name: 'realized PnL', nameGap: 14,
+      ...baseAxis,
+      axisLabel: { ...baseAxis.axisLabel, formatter: (v) => fmtUsd(v, 0) },
+      splitLine: { lineStyle: { color: 'rgba(35,43,58,0.5)', type: 'dashed' } },
+    },
     series: [
-      { name: 'Won', type: 'scatter', data: winPts, symbolSize: large ? 3 : 6, large, itemStyle: { color: 'rgba(56,211,159,0.5)' } },
-      { name: 'Lost', type: 'scatter', data: lossPts, symbolSize: large ? 3 : 6, large, itemStyle: { color: 'rgba(255,107,129,0.5)' } },
+      {
+        name: 'Won', data: winPts,
+        ...dot(dense ? 'rgba(56,211,159,0.28)' : 'rgba(56,211,159,0.55)'),
+        markLine: {
+          silent: true, symbol: 'none',
+          lineStyle: { color: '#8b94a7', type: 'dashed', width: 1 },
+          data: [{ yAxis: 0 }],
+          label: { show: false },
+        },
+      },
+      { name: 'Lost', data: lossPts, ...dot(dense ? 'rgba(255,107,129,0.28)' : 'rgba(255,107,129,0.55)') },
+      ...iqrBandSeries(p25, p50, p75, { color: '#ffb454', name: 'median PnL' }),
     ],
   }, true);
 }
