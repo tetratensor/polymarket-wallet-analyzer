@@ -17,6 +17,20 @@ npm start        # http://localhost:3000
 
 Requires Node 18+ (uses built-in fetch). Default window is 30 days (7–90 selectable).
 
+## Deploy (free hosting)
+
+This is a long-running Express server whose API calls can take 1–2 minutes for very
+heavy wallets, so serverless platforms with short function timeouts (Vercel/Netlify
+free tiers) are a poor fit without rework. Recommended:
+
+- **Render (recommended)** — free web service tier, deploys straight from this repo
+  via the included `render.yaml`: [dashboard.render.com](https://dashboard.render.com)
+  → New → Blueprint → pick this repo. Caveat: free instances sleep after ~15 min idle
+  (first request after that takes ~30–60 s to wake).
+- **Koyeb** — similar free web-service model, also works with a plain `npm start`.
+
+No environment variables or API keys are required; the server binds `process.env.PORT`.
+
 ## Correctness notes
 
 - Data source: the public Polymarket data API (`data-api.polymarket.com/trades`), no API key needed.
