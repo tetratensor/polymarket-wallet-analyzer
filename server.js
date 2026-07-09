@@ -3,7 +3,7 @@ import compression from 'compression';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fetchAllTrades } from './lib/fetchTrades.js';
-import { fetchClosedPositions, fetchOpenPositions, fetchPnlSeries } from './lib/fetchPositions.js';
+import { fetchClosedPositions, fetchOpenPositions, fetchPnlSeries, fetchOfficialVolume } from './lib/fetchPositions.js';
 import { analyzeTrades, analyzePnl } from './lib/stats.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,11 +79,12 @@ async function buildPayload(wallet, days) {
   const endTs = Math.floor(Date.now() / 1000);
   const startTs = endTs - days * 86400;
 
-  const [raw, closedRaw, openRaw, pnlSeries] = await Promise.all([
+  const [raw, closedRaw, openRaw, pnlSeries, officialVolume] = await Promise.all([
     fetchAllTrades(wallet, { startTs, endTs }),
     fetchClosedPositions(wallet, { startTs, endTs }),
     fetchOpenPositions(wallet),
     fetchPnlSeries(wallet, { days }),
+    fetchOfficialVolume(wallet, { days }),
   ]);
 
   // The closed-positions `timestamp` is when Polymarket recorded settlement,
@@ -129,6 +130,7 @@ async function buildPayload(wallet, days) {
     range: { startTs, endTs },
     profile,
     summary: analyzeTrades(trades),
+    officialVolume,
     trades,
     pnl: {
       settled: analyzePnl(closedPositions),

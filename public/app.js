@@ -102,7 +102,11 @@ function renderCards() {
 
   const cards = [
     { k: `Trades (${days}d)`, v: fmtInt(s.counts.total), d: `${fmtInt(s.counts.buys)} buys · ${fmtInt(s.counts.sells)} sells` },
-    { k: 'Volume', v: fmtUsd(s.volume.total), d: `buy ${fmtUsd(s.volume.buy)} · sell ${fmtUsd(s.volume.sell)}` },
+    {
+      k: 'Cash volume', v: fmtUsd(s.volume.total),
+      d: `buy ${fmtUsd(s.volume.buy)} · sell ${fmtUsd(s.volume.sell)}` +
+        (state.data.officialVolume ? ` · official metric ${fmtUsd(state.data.officialVolume.amount)}` : ''),
+    },
     { k: 'Median bet', v: fmtUsd(s.betSize.median), d: `mean ${fmtUsd(s.betSize.mean)} · p90 ${fmtUsd(s.betSize.p90)}` },
     { k: 'Largest bet', v: fmtUsd(s.betSize.max), d: 'single BUY fill' },
     { k: 'Median entry price', v: fin(s.entryPrice.median) ? fmtCents(s.entryPrice.median) : '—', d: `exit ${fin(s.exitPrice.median) ? fmtCents(s.exitPrice.median) : '—'}` },
@@ -511,7 +515,7 @@ function renderAll() {
   $('footnote').innerHTML =
     `Data: Polymarket data API (all fills incl. maker + taker), ${from} → ${to}. ` +
     `Bet size = price × shares per fill, in USDC. Entry = BUY fills, exit = SELL fills; redeeming winning shares is not a SELL and does not appear here. ` +
-    `Volume is fill notional (price × shares); taker fees, where charged, add ~1–2% cash on top of notional and are excluded. ` +
+    `Cash volume is fill notional (price × shares actually paid); taker fees, where charged, add ~1–2% on top and are excluded. Polymarket's official volume metric differs: matched buy-buy fills (complete-set mints, common in two-sided/cheap markets) are credited at ~$1 per share rather than cash paid, so the official number can be several times the cash figure. Wallets that exit by redeeming winners rather than selling legitimately show $0 sell volume. ` +
     `Account PnL = official mark-to-market curve (realized + unrealized, matches the profile P/L graph). Settled bets PnL covers settled positions the wallet traded inside the window (full lifetime PnL each; Polymarket sometimes batch-records losing settlements weeks late, so settlement dates alone are unreliable). The two answer different questions and will differ. ` +
     `Time-zone inference is a heuristic based on the quietest ${data.summary.timezone.windowLen}-hour window (assumed sleep starting ~01:00 local); confidence: ${data.summary.timezone.confidence}.`;
 
