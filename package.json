@@ -1,0 +1,22 @@
+{
+  "name": "polymarket-wallet-analyzer",
+  "version": "1.0.0",
+  "description": "Visual analyzer for Polymarket wallet activity: trading time patterns, bet size and entry/exit price distributions",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "compression": "^1.8.1",
+    "echarts": "^6.1.0",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.3.0"
+  }
+}

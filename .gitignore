@@ -1,0 +1,4 @@
+node_modules/
+scripts/screenshot-*.png
+scripts/audit-payload.json
+.env
